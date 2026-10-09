@@ -1,0 +1,86 @@
+##
+# Tests wp-plugin-tools itself: lints the workflows and scripts, syncs the
+# tooling into a fixture plugin, and runs its checks and build.
+##
+name: Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint workflows and scripts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Lint workflows
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
+
+      - name: Lint shell scripts
+        run: shellcheck bin/*.sh
+
+  fixture:
+    name: Sync into a fixture plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+
+      - name: Sync the tooling into the fixture plugin
+        run: |
+          cp -r tests/fixture-plugin "$RUNNER_TEMP/fixture-plugin"
+          cd "$RUNNER_TEMP/fixture-plugin"
+          git init -q && git remote add origin https://github.com/samiahmedsiddiqui/fixture-plugin.git
+          node "$GITHUB_WORKSPACE/bin/sync.mjs" .
+          node -e "const c = require('./.wp-plugin-tools.json'); if (c.slug !== 'fixture-plugin' || c.requires.wp !== '6.0') process.exit(1)"
+
+      - name: Install dependencies
+        working-directory: ${{ runner.temp }}/fixture-plugin
+        run: |
+          npm install --no-audit --no-fund
+          composer install --no-interaction --no-progress
+
+      - name: Lint, analyse and build
+        working-directory: ${{ runner.temp }}/fixture-plugin
+        run: |
+          npm run lint
+          composer lint
+          composer analyse
+          npm run build
+          test -f assets/css/admin-1.0.0.min.css
+          test -f assets/js/admin-1.0.0.min.js
+
+      - name: Sync again changes nothing
+        working-directory: ${{ runner.temp }}/fixture-plugin
+        run: |
+          git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm synced
+          node "$GITHUB_WORKSPACE/bin/sync.mjs" .
+          git status --short
+          test -z "$(git status --short)"

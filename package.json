@@ -1,0 +1,20 @@
+{
+	"name": "wp-plugin-tools",
+	"private": true,
+	"description": "Shared tooling for WordPress plugins. The devDependencies here are the versions bin/sync.mjs installs into each plugin.",
+	"license": "GPL-3.0-or-later",
+	"engines": {
+		"node": ">=20.19"
+	},
+	"scripts": {
+		"sync": "node bin/sync.mjs"
+	},
+	"devDependencies": {
+		"@wordpress/env": "11.17.0",
+		"@wordpress/eslint-plugin": "27.1.0",
+		"@wordpress/stylelint-config": "26.1.0",
+		"esbuild": "0.28.2",
+		"eslint": "10.12.0",
+		"globals": "17.13.0"
+	}
+}

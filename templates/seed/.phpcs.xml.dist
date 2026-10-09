@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<ruleset name="{{name}}">
+	<description>PHP_CodeSniffer rules for {{name}}.</description>
+
+	<file>.</file>
+
+	<!-- Dependencies and build output. -->
+	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+	<exclude-pattern>.phpstan/*</exclude-pattern>
+
+	<arg name="extensions" value="php"/>
+	<arg name="basepath" value="."/>
+	<arg name="colors"/>
+	<arg value="sp"/>
+
+	<!-- PHP versions the plugin supports. -->
+	<config name="testVersion" value="{{minPhp}}-"/>
+	<rule ref="PHPCompatibilityWP"/>
+
+	<!-- WordPress Coding Standards, for the WordPress versions the plugin supports. -->
+	<config name="minimum_wp_version" value="{{minWp}}"/>
+	<rule ref="WordPress"/>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="{{textDomain}}"/>
+			</property>
+		</properties>
+	</rule>
+
+	<!-- Test files follow the WordPress core test-*.php naming. -->
+	<rule ref="WordPress.Files.FileName.InvalidClassFileName">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+</ruleset>

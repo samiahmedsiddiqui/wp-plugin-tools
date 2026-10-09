@@ -1,0 +1,34 @@
+# Managed by wp-plugin-tools; changes are overwritten by bin/sync. https://github.com/samiahmedsiddiqui/wp-plugin-tools
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  coding-standards:
+    name: Coding standards
+    uses: samiahmedsiddiqui/wp-plugin-tools/.github/workflows/coding-standards.yml@v1
+    permissions:
+      contents: read
+
+  phpunit:
+    name: PHPUnit
+    uses: samiahmedsiddiqui/wp-plugin-tools/.github/workflows/phpunit.yml@v1
+    permissions:
+      contents: read
+
+  plugin-check:
+    name: Plugin Check
+    uses: samiahmedsiddiqui/wp-plugin-tools/.github/workflows/plugin-check.yml@v1
+    permissions:
+      contents: read
+      pull-requests: write

@@ -1,0 +1,40 @@
+##
+# Runs WordPress.org's Plugin Check against the files the plugin ships:
+# a `git archive` of the repository, which honors `.gitattributes` export-ignore.
+##
+name: Plugin Check
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  plugin-check:
+    name: Run Plugin Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets the action post its results as a pull request comment.
+      pull-requests: write
+
+    steps:
+      # Checked out into a subfolder so the action doesn't pick up the repository's own .wp-env.json.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          path: source
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      - name: Build the plugin
+        id: build
+        run: |
+          SLUG=$(node -p "try { require('./source/.wp-plugin-tools.json').slug || '' } catch (e) { '' }")
+          SLUG="${SLUG:-${GITHUB_REPOSITORY#*/}}"
+          git -C source archive --format=tar --prefix="$SLUG/" HEAD | tar -x
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+
+      - name: Run Plugin Check
+        uses: wordpress/plugin-check-action@10857da14b6c2246d15402b3e69f777edcf8c12e # v1.1.9
+        with:
+          build-dir: ./${{ steps.build.outputs.slug }}

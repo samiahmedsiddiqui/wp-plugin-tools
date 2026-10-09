@@ -1,0 +1,16 @@
+parameters:
+	level: 5
+	# Don't report defensive checks as redundant just because a WordPress docblock says a value can't be null.
+	treatPhpDocTypesAsCertain: false
+	phpVersion:
+		min: {{phpstanMinPhp}}
+		max: 80599
+	paths:
+		- .
+	excludePaths:
+		- .phpstan
+		- node_modules
+		- tests
+		- vendor
+	bootstrapFiles:
+		- .phpstan/bootstrap.php

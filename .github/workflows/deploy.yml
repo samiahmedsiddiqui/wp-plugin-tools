@@ -1,0 +1,93 @@
+##
+# Deploys a release tag to the WordPress.org plugin directory (SVN `trunk`,
+# `tags/X.Y.Z`, and `.wordpress-org` assets), after checking every version
+# number in the plugin matches the tag.
+##
+name: Deploy to WordPress.org
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to deploy (e.g. v1.2.3). Defaults to the published release.'
+        type: string
+        required: false
+    secrets:
+      SVN_USERNAME:
+        required: true
+      SVN_PASSWORD:
+        required: true
+
+permissions: {}
+
+jobs:
+  deploy:
+    name: Deploy release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      # Stops before publishing if any version number disagrees with the tag.
+      - name: Check version numbers
+        id: version
+        run: |
+          node <<'EOF'
+          const fs = require( 'fs' );
+          const config = fs.existsSync( '.wp-plugin-tools.json' ) ? JSON.parse( fs.readFileSync( '.wp-plugin-tools.json', 'utf8' ) ) : {};
+          const tagVersion = process.env.TAG.replace( /^v/, '' );
+          const slug = config.slug || process.env.GITHUB_REPOSITORY.split( '/' )[ 1 ];
+          const mainFile = config.mainFile || `${ slug }.php`;
+
+          const read = ( file, pattern ) => {
+            if ( ! fs.existsSync( file ) ) {
+              return null;
+            }
+            const match = fs.readFileSync( file, 'utf8' ).match( new RegExp( pattern, 'm' ) );
+            return match ? match[ 1 ].trim() : `(not found in ${ file })`;
+          };
+
+          const found = {
+            [ `${ mainFile } header` ]: read( mainFile, '^[ \\t/*#@]*Version:\\s*(\\S+)' ),
+            'readme.txt Stable tag': read( 'readme.txt', '^Stable tag:\\s*(\\S+)' ),
+            'package.json': fs.existsSync( 'package.json' ) ? require( `${ process.cwd() }/package.json` ).version || null : null,
+          };
+          for ( const extra of config.versionFiles || [] ) {
+            found[ extra.file ] = read( extra.file, extra.pattern );
+          }
+
+          let ok = true;
+          for ( const [ where, version ] of Object.entries( found ) ) {
+            if ( version === null ) {
+              continue;
+            }
+            const match = version === tagVersion;
+            ok = ok && match;
+            console.log( `${ match ? '✔' : '✘' } ${ where }: ${ version }` );
+          }
+
+          if ( ! ok ) {
+            console.log( `::error::Version numbers don't match the tag ${ process.env.TAG }.` );
+            process.exit( 1 );
+          }
+
+          fs.appendFileSync( process.env.GITHUB_OUTPUT, `version=${ tagVersion }\nslug=${ slug }\n` );
+          EOF
+
+      # Publishes the files `git archive` would ship, honoring .gitattributes export-ignore.
+      - name: Deploy to WordPress.org
+        uses: 10up/action-wordpress-plugin-deploy@54bd289b8525fd23a5c365ec369185f2966529c2 # 2.3.0
+        env:
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+          SLUG: ${{ steps.version.outputs.slug }}
+          VERSION: ${{ steps.version.outputs.version }}

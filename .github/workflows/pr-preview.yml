@@ -1,0 +1,94 @@
+##
+# Posts a WordPress Playground link on a pull request, with the pull request's
+# version of the plugin installed and activated.
+#
+# `.wp-plugin-tools.json` can set `preview.landingPage` (default: Plugins
+# screen) and `preview.setupPhp` (PHP run once to add sample content).
+##
+name: Playground preview
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  preview:
+    name: Add Playground preview link
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets the job post and update the preview comment.
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: .wp-plugin-tools.json
+          sparse-checkout-cone-mode: false
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      - name: Post the Playground preview link
+        uses: actions/github-script@v9
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const fs = require( 'fs' );
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const marker = '<!-- playground-preview -->';
+
+            const config = fs.existsSync( '.wp-plugin-tools.json' ) ? JSON.parse( fs.readFileSync( '.wp-plugin-tools.json', 'utf8' ) ) : {};
+            const preview = config.preview || {};
+            const slug = config.slug || repo;
+            const setup = Array.isArray( preview.setupPhp ) ? preview.setupPhp.join( ' ' ) : preview.setupPhp;
+
+            const steps = [
+              {
+                step: 'installPlugin',
+                pluginData: {
+                  resource: 'git:directory',
+                  url: `https://github.com/${ process.env.HEAD_REPO }.git`,
+                  ref: process.env.HEAD_REF,
+                  path: '/',
+                },
+                options: { activate: true, targetFolderName: slug },
+              },
+              { step: 'login', username: 'admin' },
+            ];
+            if ( setup ) {
+              steps.push( { step: 'runPHP', code: `<?php require '/wordpress/wp-load.php'; ${ setup }` } );
+            }
+
+            const blueprint = {
+              $schema: 'https://playground.wordpress.net/blueprint-schema.json',
+              landingPage: preview.landingPage || '/wp-admin/plugins.php',
+              preferredVersions: { php: '8.3', wp: 'latest' },
+              steps,
+            };
+
+            // Brackets are encoded too, so they can't end the Markdown link early.
+            const url = 'https://playground.wordpress.net/?blueprint-url=data:application/json,' +
+              encodeURIComponent( JSON.stringify( blueprint ) ).replace( /\(/g, '%28' ).replace( /\)/g, '%29' );
+
+            const body = [
+              marker,
+              '### WordPress Playground preview',
+              '',
+              `**[Open this PR in WordPress Playground](${ url })** (${ process.env.HEAD_SHA.slice( 0, 7 ) })`,
+              '',
+              preview.description || 'Logs in as admin with this pull request\'s version of the plugin active.',
+            ].join( '\n' );
+
+            const comments = await github.paginate( github.rest.issues.listComments, { owner, repo, issue_number } );
+            const existing = comments.find( ( comment ) => comment.user.type === 'Bot' && comment.body.includes( marker ) );
+
+            if ( existing ) {
+              await github.rest.issues.updateComment( { owner, repo, comment_id: existing.id, body } );
+            } else {
+              await github.rest.issues.createComment( { owner, repo, issue_number, body } );
+            }

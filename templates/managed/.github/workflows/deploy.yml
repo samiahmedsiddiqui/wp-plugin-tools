@@ -1,0 +1,28 @@
+# Managed by wp-plugin-tools; changes are overwritten by bin/sync. https://github.com/samiahmedsiddiqui/wp-plugin-tools
+name: Deploy to WordPress.org
+
+on:
+  release:
+    types: [ published ]
+  # Redeploys an existing release tag, e.g. after a failed run.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to deploy (e.g. v1.2.3)'
+        required: true
+
+permissions: {}
+
+jobs:
+  deploy:
+    name: Deploy
+    # Pre-releases stay on GitHub only.
+    if: ${{ github.event_name == 'workflow_dispatch' || ! github.event.release.prerelease }}
+    uses: samiahmedsiddiqui/wp-plugin-tools/.github/workflows/deploy.yml@v1
+    with:
+      tag: ${{ inputs.tag }}
+    secrets:
+      SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+      SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+    permissions:
+      contents: read

@@ -1,0 +1,104 @@
+##
+# PHPUnit integration tests on @wordpress/env, across the WordPress and PHP
+# versions listed under `tests.matrix` in `.wp-plugin-tools.json`.
+#
+# Skipped (but still reported) when the plugin has no PHPUnit config.
+##
+name: PHPUnit
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  matrix:
+    name: Read test matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+      slug: ${{ steps.read.outputs.slug }}
+      enabled: ${{ steps.read.outputs.enabled }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      - name: Read .wp-plugin-tools.json
+        id: read
+        run: |
+          node <<'EOF'
+          const fs = require( 'fs' );
+          const config = fs.existsSync( '.wp-plugin-tools.json' ) ? JSON.parse( fs.readFileSync( '.wp-plugin-tools.json', 'utf8' ) ) : {};
+          const matrix = ( config.tests && config.tests.matrix ) || [
+            { wp: 'latest', php: '8.4' },
+          ];
+          const enabled = fs.existsSync( 'phpunit.xml.dist' ) || fs.existsSync( 'phpunit.xml' );
+          const out = [
+            `matrix=${ JSON.stringify( { include: matrix } ) }`,
+            `slug=${ config.slug || process.env.GITHUB_REPOSITORY.split( '/' )[ 1 ] }`,
+            `enabled=${ enabled }`,
+          ];
+          fs.appendFileSync( process.env.GITHUB_OUTPUT, out.join( '\n' ) + '\n' );
+          console.log( out.join( '\n' ) );
+          EOF
+
+  phpunit:
+    name: WordPress ${{ matrix.wp }} on PHP ${{ matrix.php }}
+    needs: matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON( needs.matrix.outputs.matrix ) }}
+
+    steps:
+      - name: Skip without PHPUnit config
+        if: needs.matrix.outputs.enabled != 'true'
+        run: echo "No phpunit.xml.dist; skipping."
+
+      - name: Checkout repository
+        if: needs.matrix.outputs.enabled == 'true'
+        uses: actions/checkout@v7
+        with:
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      - name: Set up PHP
+        if: needs.matrix.outputs.enabled == 'true'
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+
+      - name: Install Composer dependencies
+        if: needs.matrix.outputs.enabled == 'true'
+        run: composer install --no-interaction --no-progress
+
+      - name: Set up Node.js
+        if: needs.matrix.outputs.enabled == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        if: needs.matrix.outputs.enabled == 'true'
+        run: npm ci
+
+      - name: Start WordPress
+        if: needs.matrix.outputs.enabled == 'true'
+        run: npx wp-env start
+        env:
+          WP_ENV_CORE: ${{ matrix.wp != 'latest' && format( 'WordPress/WordPress#{0}', matrix.wp ) || '' }}
+          WP_ENV_PHP_VERSION: ${{ matrix.php }}
+
+      - name: Run PHPUnit
+        if: needs.matrix.outputs.enabled == 'true'
+        run: npx wp-env run cli --env-cwd="wp-content/plugins/$SLUG" vendor/bin/phpunit
+        env:
+          SLUG: ${{ needs.matrix.outputs.slug }}

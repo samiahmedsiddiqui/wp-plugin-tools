@@ -1,0 +1,134 @@
+##
+# Coding standards for a WordPress plugin: PHP_CodeSniffer, PHPStan,
+# ESLint and Stylelint, and a check that committed build files are up to date.
+#
+# Steps for a tool the plugin doesn't use are skipped, but every job still
+# reports its status, so the checks can be required by a ruleset.
+##
+name: Coding standards
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  phpcs:
+    name: PHP coding standards
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      - name: Find PHP_CodeSniffer config
+        id: config
+        run: |
+          if [ -f composer.json ] && { [ -f .phpcs.xml ] || [ -f .phpcs.xml.dist ] || [ -f phpcs.xml ] || [ -f phpcs.xml.dist ]; }; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No PHP_CodeSniffer config; skipping."
+          fi
+
+      - name: Set up PHP
+        if: steps.config.outputs.enabled
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          tools: cs2pr
+
+      - name: Install Composer dependencies
+        if: steps.config.outputs.enabled
+        run: composer install --no-interaction --no-progress
+
+      - name: Run PHP_CodeSniffer
+        if: steps.config.outputs.enabled
+        id: phpcs
+        run: vendor/bin/phpcs -n --report-full --report-checkstyle=./phpcs-report.xml
+
+      - name: Show PHP_CodeSniffer results in the pull request
+        if: ${{ always() && steps.phpcs.outcome == 'failure' }}
+        run: cs2pr ./phpcs-report.xml
+
+  phpstan:
+    name: PHP static analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      - name: Find PHPStan config
+        id: config
+        run: |
+          if [ -f composer.json ] && { [ -f phpstan.neon ] || [ -f phpstan.neon.dist ]; }; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No PHPStan config; skipping."
+          fi
+
+      - name: Set up PHP
+        if: steps.config.outputs.enabled
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+
+      - name: Install Composer dependencies
+        if: steps.config.outputs.enabled
+        run: composer install --no-interaction --no-progress
+
+      - name: Run PHPStan
+        if: steps.config.outputs.enabled
+        run: vendor/bin/phpstan analyse --memory-limit=1G --error-format=github
+
+  javascript:
+    name: JavaScript and CSS coding standards
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      - name: Find package.json
+        id: config
+        run: |
+          if [ -f package.json ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No package.json; skipping."
+          fi
+
+      - name: Set up Node.js
+        if: steps.config.outputs.enabled
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        if: steps.config.outputs.enabled
+        run: npm ci
+
+      - name: Lint
+        if: steps.config.outputs.enabled
+        run: npm run lint --if-present
+
+      - name: Build
+        if: steps.config.outputs.enabled
+        run: npm run build --if-present
+
+      - name: Ensure committed build files are up to date
+        if: steps.config.outputs.enabled
+        run: git diff --exit-code
